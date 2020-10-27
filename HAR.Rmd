@@ -1,0 +1,135 @@
+---
+title: "Practical Machine Learning Course Project"
+author: "Javier Chang"
+date: "25/10/2020"
+output: html_document
+bibliography: mybib.bib
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE, warning=FALSE)
+library(caret); library(dplyr); library(kableExtra)
+```
+
+## Synopsis
+
+This is the Practical Machine Learning Course Project from Coursera. One thing that people regularly do is quantify how much of a particular activity they do, but they rarely quantify how well they do it. In this project, our goal will be to use data from accelerometers on the belt, forearm, arm, and dumbell of 6 participants.
+
+## Data Processing
+
+The *[Weight Lifting Exercises Dataset](http://groupware.les.inf.puc-rio.br/har#weight_lifting_exercises)* [@HAR01] contains the data from six young health participants who were asked to perform one set of 10 repetitions of the Unilateral Dumbbell Biceps Curl in five different fashions: exactly according to the specification (Class A), throwing the elbows to the front (Class B), lifting the dumbbell only halfway (Class C), lowering the dumbbell only halfway (Class D) and throwing the hips to the front (Class E).
+
+### Dowload raw data
+
+The training data for this project are available here:
+
+[pml-training.csv](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv)
+
+```{r download training data}
+## training data
+dfile <- "pml-training.csv"
+if (!file.exists(dfile)) {
+      download.file(
+            "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv",
+            destfile = dfile
+      )
+}
+training <-
+      read.csv(dfile, header = TRUE,
+            na.strings = c("NA", "", "#DIV/0!"),
+            stringsAsFactors = FALSE
+      )
+training$classe <- as.factor(training$classe)
+dim(training)
+```
+
+The test data are available here:
+
+[pml-testing](https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv)
+
+```{r download testing data, cache=TRUE}
+## validation data
+dfile <- "pml-testing.csv"
+if (!file.exists(dfile)) {
+      download.file(
+            "https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv",
+            destfile = dfile
+      )
+}
+validation <- read.csv(dfile, header = TRUE,
+      na.strings = c("NA", "", "#DIV/0!"),
+      stringsAsFactors = FALSE
+)
+dim(validation)
+```
+
+### Data cleansing
+
+There are several variables with more than 90% of NA values. These variables are discarded as they are not useful for the prediction model.
+
+```{r data cleansing NA columns}
+trainingNAcols <- colMeans(is.na(training))
+training <- training[,names(trainingNAcols[trainingNAcols<.9])]
+dim(training)
+validationNAcols <- colMeans(is.na(validation))
+validation <- validation[,names(validationNAcols[validationNAcols<.9])]
+dim(validation)
+```
+
+Additionally, the first seven variables are going to be removed as they are not relevant for our prediction.
+
+```{r remove first 7 columns}
+training <- training[,-c(1:7)]
+validation <- validation[, -c(1:7)]
+```
+
+### Prepare training and testing data
+
+The training data is splitted into two groups: 70% for training and 30% for testing.
+
+```{r prepare data}
+set.seed(1249)
+inTrain <- createDataPartition(y=training$classe, p=0.7, list=FALSE)
+trainData <- training[inTrain,]
+dim(trainData)
+testData <- training[-inTrain,]
+dim(testData)
+```
+
+## Prediction model building
+
+Our goal is to predict the manner in which the subjects did exercise. This is the **classe** variable in the training set which is a categorical variable, therefore I am going to use a classification algorithm to predict the category.
+
+I choosed **Random Forest** algorithm because it provides high accuracy through cross validation and it has the power to handle large data sets with higher dimensionality. An error rate less than **5%** is desirable, and the training data is large as it has more than 13,000 observations and 53 variables. 
+
+The model is trained with *10-fold cross validation* for better accuracy and *pca* pre processing to select the principal components.
+
+```{r rf, cache=TRUE}
+## Train the model
+modrf <- train(classe~., data=trainData, method="rf", trControl=trainControl(method="cv", number=10), allowParallel=TRUE, preProcess="pca", verbose=FALSE)
+print(modrf)
+print(modrf$finalModel)
+```
+
+As we can see the trained model obtained an out-of-bag (OOB) estimate of **2.46%** which is less than our out of sample expected error of 5%.
+
+```{r test model, cache=TRUE}
+## Test the model
+predrf <- predict(modrf, newdata=testData)
+confusionMatrix(predrf, testData$classe)
+```
+
+The accuracy obtained on the test set is **0.9798** which is good enough for our prediction goal.
+
+## Prediction results on the validation data
+
+Applying the random forest model on the validation data the following prediction was obtained:
+
+```{r prediction}
+predval <- predict(modrf, newdata=validation)
+results <- data.frame(validation$problem_id, predval)
+results <- as.data.frame(t(as.matrix(results)))
+knitr::kable(results)
+```
+
+## References
